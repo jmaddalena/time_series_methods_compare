@@ -1,0 +1,111 @@
+---
+title: "data_transformation"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(zoo)
+```
+
+
+# Chicago Burglaries
+
+```{r}
+chicago_burg = read.csv("./data/Crimes_-_2001_to_Present.csv") %>%
+  filter(Primary.Type== "BURGLARY") %>%
+  mutate(datetime = mdy_hms(Date)) %>%
+  filter(datetime >= "2012-01-01") %>%
+  mutate(date = floor_date(datetime, "day")) 
+
+chicago_burg_daily = chicago_burg %>%
+  group_by(date) %>%
+  summarize(burglaries = n())
+
+chicago_burg_daily %>% head
+
+```
+
+
+# Weather
+
+```{r}
+weather = read.csv("./data/chicago_weather_noaa.csv") %>%
+  mutate(datetime = ymd_hms(DATE)) %>%
+  select(datetime, HourlyDryBulbTemperature, HourlyPrecipitation, HourlyPresentWeatherType) %>%
+  mutate(date = floor_date(datetime, "day"),
+         temperature = as.numeric(HourlyDryBulbTemperature),
+         precipitation = case_when(str_detect(HourlyPrecipitation, "s") ~ str_remove(HourlyPrecipitation, "s"),
+                                         HourlyPrecipitation %in% c("T", "", 0) ~ "0.0",
+                                         TRUE ~ HourlyPrecipitation) %>% as.numeric,
+         rain = str_detect(HourlyPresentWeatherType, "RA") | str_detect(HourlyPresentWeatherType, "DZ"),
+         snow = str_detect(HourlyPresentWeatherType, "SN"),
+         mist = str_detect(HourlyPresentWeatherType, "BR"),
+         smoke_or_haze = str_detect(HourlyPresentWeatherType, "HZ"),
+         thunder = str_detect(HourlyPresentWeatherType, "TS"),
+         fog = str_detect(HourlyPresentWeatherType, "FG"))
+         
+weather_daily = weather %>%
+  group_by(date) %>%
+  summarize(low_temp = min(temperature, na.rm = T),
+            high_temp = max(temperature, na.rm = T),
+            total_precip = sum(precipitation),
+            rain = any(rain),
+            snow = any(snow))
+
+```
+
+```{r}
+joined_df = chicago_burg_daily %>% merge(weather_daily, by = "date", all.x = T, all.y = T)
+
+# ensure no missing dates in time series
+date_seq = data.frame("date" = seq(min(joined_df$date), max(joined_df$date), by = "1 day"))
+
+full_df = joined_df %>% merge(date_seq, on = "date", all.x = T, all.y = T)
+
+```
+
+# Feature creation
+
+```{r}
+
+# add seasonal features
+final_df = full_df %>%
+  mutate(weekday = wday(date),
+         month = month(date),
+         year = year(date),
+         yday = yday(date))
+
+# fourier features for yday
+fourier <- function(t,terms,period){				## fourier transform function 
+  		n <- length(t)							
+  		X <- matrix(,nrow=n,ncol=2*terms)
+  		for(i in 1:terms)
+  		{
+    			X[,2*i-1] <- sin(2*pi*i*t/period)
+    			X[,2*i] <- cos(2*pi*i*t/period)
+  		}
+  		colnames(X) <- paste(c("fourier_sin_","fourier_cos_"),rep(1:terms,rep(2,terms)),sep="")
+  		return(X)}
+
+fourier_terms = fourier(full_df$burglaries, terms = 3, period = 365)
+
+final_df = final_df %>% cbind(fourier_terms)
+
+# one hot encodings for weekday
+one_hot_wday = mltools::one_hot(data.table::as.data.table(factor(final_df$weekday)))
+colnames(one_hot_wday) = paste0("weekday_", seq(1, 7))
+
+final_df = final_df %>% cbind(one_hot_wday)
+
+```
+
+
+```{r}
+write.csv(final_df, "data/chicago_burglaries_ts.csv", row.names = F)
+```
+
+
+

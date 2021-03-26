@@ -1,0 +1,96 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+ts = read.csv("data/chicago_burglaries_ts.csv") %>%
+  mutate(rain_or_snow = case_when(rain & snow ~ "rain and snow", rain ~ "rain", snow ~ "snow", TRUE ~ "neither"))
+
+ts %>% head
+```
+# Seasonolity
+
+## Time of year
+
+```{r}
+
+ts_plot = ts %>%
+  mutate(burglaries_plot = case_when(burglaries > 200 ~ 200, TRUE ~ as.numeric(burglaries)))
+
+outliers = ts_plot %>% filter(burglaries > 200) %>% mutate(label = "200+") 
+         
+ggplot(ts_plot, aes(x = yday, y = burglaries_plot, color = factor(year))) +
+  geom_line() +
+  geom_point(data = outliers, aes(fill = label)) +
+  coord_polar()
+  
+```
+
+```{r}
+
+ts_mo_plot = ts %>%
+  mutate(month_year = paste0(year, "-", stringr::str_pad(month, 2, pad = "0")) %>%
+  group_by(month, year, month_year) %>%
+  summarize(burglaries_mo = sum(burglaries))
+
+ts_mo_plot_1 =  ts_mo_plot %>%
+  filter(month == 1) %>%
+  mutate(month = 13, year = year - 1) %>%
+  filter(year != 2011)
+
+ts_mo_plot = ts_mo_plot %>% rbind(ts_mo_plot_1)
+
+ggplot(ts_mo_plot, aes(x = month, y = burglaries_mo, color = factor(year))) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1, 12), labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")) +
+  coord_polar() +
+  labs(x = "", y = "burglaries per month", color = "year")
+  
+```
+## Day of week
+
+```{r}
+ggplot(ts %>% filter(burglaries < 200), aes(x = factor(weekday), y = burglaries)) +
+  geom_boxplot() + 
+  scale_x_discrete(labels = c('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')) +
+  labs(x = "", y = "average burglaries by weekday")
+```
+
+# Weather
+
+# Precipitation type 
+
+```{r}
+
+ggplot(ts_precip_type  %>% 
+  filter(burglaries < 200), aes(x = rain_or_snow, y = burglaries)) +
+  geom_boxplot() + 
+  labs(x = "", y = "average burglaries by weekday")
+```
+
+## Preicipitation Amount
+
+```{r}
+ggplot(ts %>% filter(total_precip > 0, burglaries < 200), aes(x = total_precip, y = burglaries, color = rain_or_snow)) +
+  geom_point(alpha = 0.7) +
+  scale_x_continuous(trans='log10') +
+  scale_y_continuous(trans='log10') +
+  labs(x = "total daily precipitation", color = "precipitation type")
+```
+## Temperature
+
+```{r}
+ggplot(ts %>% filter(burglaries < 200), aes(x = high_temp, y = burglaries)) + 
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_wrap(~month)
+```
+
+```{r}
+ggPacf(ts$burglaries)
+```
+
+
+
+
