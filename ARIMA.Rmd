@@ -2,3 +2,79 @@
 title: "ARIMA"
 output: html_notebook
 ---
+
+Things I want to measure:
+* average accuracy by training size
+* average accuracy by time out in prediction
+* average by month of predictions (is the model underfitting for certain times of year?)
+
+```{r}
+ts = read_csv("data/chicago_burglaries_ts.csv") 
+
+ts %>% head
+```
+
+# Fitting model
+
+```{r}
+xvars = c(#'high_temp', #'rain', 'snow', # 'total_precip', 
+              'fourier_sin_1', 'fourier_cos_1', 'fourier_sin_2', 'fourier_cos_2') 
+             # 'fourier_sin_3', 'fourier_cos_3')
+             # 'weekday_1', 'weekday_2', 'weekday_3', 'weekday_4', 'weekday_5', 'weekday_6')
+
+dates_cv = seq.Date(as.Date('2012-01-01'), as.Date('2020-12-01'), "1 month")
+
+date_cutoff = ymd('2019-01-01')
+train = ts %>% filter(date <= date_cutoff)
+test = ts %>% filter(date > date_cutoff & date <= date_cutoff + days(8*7))
+
+y_train = train %>% pull(burglaries)
+x_train = train %>% select(xvars) %>% data.matrix
+
+y_test = test %>% pull(burglaries)
+x_test = test %>% select(xvars) %>% data.matrix
+test_dates = test %>% pull(date)
+
+#arima_mod = auto.arima(y = ts(y_train, frequency = 7), xreg = x_train, D = 1)
+
+arima_mod = Arima(ts(y_train, frequency = 7), order = c(1,1,1), seasonal = list(order = c(0, 1, 2), period = 7), xreg = x_train)
+
+arima_mod
+```
+
+```{r}
+Pacf(arima_mod$residuals)
+```
+
+
+# Visualizing annual seasonality
+
+```{r, fig.height= 2, fig.width=6}
+
+fourier_coef = arima_mod$coef %>% t %>% data.frame %>% select(contains('fourier'))
+
+fourier_df = ts %>% 
+  mutate(fourier_sum = fourier_coef$fourier_sin_1*fourier_sin_1 +
+               fourier_coef$fourier_sin_2*fourier_sin_2 +
+               fourier_coef$fourier_cos_1*fourier_cos_1 +
+               fourier_coef$fourier_cos_2*fourier_cos_2)
+
+ggplot(fourier_df, aes(x = date, y = fourier_sum, group = 1)) + 
+  geom_line() 
+
+```
+
+# Prediction
+
+```{r}
+pred_test = data.frame(forecast(arima_mod, xreg=x_test, h=8*7))
+pred_test$date = test_dates
+pred_test$actual = y_test
+
+ggplot(pred_test, aes(x = date)) +
+  geom_line(aes(y = Point.Forecast), color = "dodgerblue") +
+  geom_ribbon(aes(ymin = Lo.80, ymax = Hi.80), fill = "dodgerblue", alpha = 0.3) +
+  geom_ribbon(aes(ymin = Lo.95, ymax = Hi.95), fill = "dodgerblue", alpha = 0.1) +
+  geom_line(aes(y = actual), color = "red") 
+```
+

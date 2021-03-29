@@ -90,7 +90,7 @@ fourier <- function(t,terms,period){				## fourier transform function
   		colnames(X) <- paste(c("fourier_sin_","fourier_cos_"),rep(1:terms,rep(2,terms)),sep="")
   		return(X)}
 
-fourier_terms = fourier(full_df$burglaries, terms = 3, period = 365)
+fourier_terms = fourier(1:nrow(final_df), terms = 3, period = 365)
 
 final_df = final_df %>% cbind(fourier_terms)
 
